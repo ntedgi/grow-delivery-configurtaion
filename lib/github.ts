@@ -3,8 +3,9 @@ import fs from "fs"
 import path from "path"
 import { promises as fsPromises } from "fs"
 
-// Use the correct path for Next.js - pointing directly to the ab.json file
+// Use the correct paths for Next.js
 const LOCAL_FILE_PATH = path.join(process.cwd(), "data/ab.json")
+const DEFAULT_FILE_PATH = path.join(process.cwd(), "data/default-ab.json")
 const BACKUP_FILE_PATH = path.join(process.cwd(), "data/ab.backup.json")
 
 export class GitHubService {
@@ -24,141 +25,54 @@ export class GitHubService {
     }
   }
 
-  private getDefaultContent(): string {
-    return JSON.stringify(
-      {
-        default: {
-          landingID: 10000,
-          landingName: "Default Configuration",
-          enabled: true,
-          toggles: {
-            both: {},
-            ios: {},
-            android: {},
-          },
-          sdkToggles: {
-            both: {},
-            ios: {},
-            android: {},
-          },
-        },
-        experiments: [],
-        filters: [],
-      },
-      null,
-      2,
-    )
-  }
-
   async getFileContent(): Promise<string> {
     try {
       // Ensure the directory exists
       await this.ensureDirectoryExists(path.dirname(LOCAL_FILE_PATH))
 
-      // Check if file exists
-      if (!fs.existsSync(LOCAL_FILE_PATH)) {
-        console.log("AB test file not found, creating default file")
-
-        // Try to copy the uploaded ab.json file if it exists
-        const uploadedFilePath = path.join(process.cwd(), "data/experiments.json")
-        if (fs.existsSync(uploadedFilePath)) {
-          try {
-            const content = await fsPromises.readFile(uploadedFilePath, "utf-8")
-            // Validate JSON
-            JSON.parse(content)
-            // Copy to ab.json
-            await fsPromises.writeFile(LOCAL_FILE_PATH, content, "utf-8")
-            console.log("Copied uploaded ab.json file")
-            return content
-          } catch (copyError) {
-            console.error("Error copying uploaded file:", copyError)
-          }
-        }
-
-        // If no uploaded file or copy failed, create default content
-        const defaultContent = this.getDefaultContent()
-        await fsPromises.writeFile(LOCAL_FILE_PATH, defaultContent, "utf-8")
-        return defaultContent
-      }
-
-      // Read the file
-      let content: string
-      try {
-        content = await fsPromises.readFile(LOCAL_FILE_PATH, "utf-8")
-      } catch (readError) {
-        console.error("Error reading file:", readError)
-
-        // Try to read the uploaded file as a fallback
-        const uploadedFilePath = path.join(process.cwd(), "data/experiments.json")
-        if (fs.existsSync(uploadedFilePath)) {
-          try {
-            content = await fsPromises.readFile(uploadedFilePath, "utf-8")
-            // Validate JSON
-            JSON.parse(content)
-            // Copy to ab.json
-            await fsPromises.writeFile(LOCAL_FILE_PATH, content, "utf-8")
-            console.log("Used uploaded ab.json file as fallback")
-            return content
-          } catch (fallbackError) {
-            console.error("Error using fallback file:", fallbackError)
-          }
-        }
-
-        const defaultContent = this.getDefaultContent()
-        await fsPromises.writeFile(LOCAL_FILE_PATH, defaultContent, "utf-8")
-        return defaultContent
-      }
-
-      // Check if content is empty
-      if (!content || content.trim() === "") {
-        console.log("File is empty, creating default content")
-        const defaultContent = this.getDefaultContent()
-        await fsPromises.writeFile(LOCAL_FILE_PATH, defaultContent, "utf-8")
-        return defaultContent
-      }
-
-      // Validate JSON
-      try {
-        const parsed = JSON.parse(content)
-        return content
-      } catch (jsonError) {
-        console.error("Invalid JSON in file:", jsonError)
-        console.log("Content preview:", content.substring(0, 100))
-
-        // Backup the invalid file
+      // Check if local file exists
+      if (fs.existsSync(LOCAL_FILE_PATH)) {
         try {
-          const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-          const backupPath = path.join(process.cwd(), "data", `ab.invalid.${timestamp}.txt`)
-          await fsPromises.writeFile(backupPath, content, "utf-8")
-          console.log(`Backed up invalid file to: ${backupPath}`)
-        } catch (backupError) {
-          console.error("Failed to backup invalid file:", backupError)
-        }
+          const content = await fsPromises.readFile(LOCAL_FILE_PATH, "utf-8")
 
-        // Try to read the uploaded file as a fallback
-        const uploadedFilePath = path.join(process.cwd(), "data/experiments.json")
-        if (fs.existsSync(uploadedFilePath)) {
+          // Validate JSON
           try {
-            const uploadedContent = await fsPromises.readFile(uploadedFilePath, "utf-8")
-            // Validate JSON
-            JSON.parse(uploadedContent)
-            // Copy to ab.json
-            await fsPromises.writeFile(LOCAL_FILE_PATH, uploadedContent, "utf-8")
-            console.log("Used uploaded ab.json file as fallback after JSON error")
-            return uploadedContent
-          } catch (fallbackError) {
-            console.error("Error using fallback file after JSON error:", fallbackError)
+            JSON.parse(content)
+            return content
+          } catch (jsonError) {
+            console.error("Invalid JSON in local file:", jsonError)
+            // If invalid JSON, continue to fallbacks
           }
+        } catch (readError) {
+          console.error("Error reading local file:", readError)
+          // Continue to fallbacks
         }
-
-        // Replace with default content
-        const defaultContent = this.getDefaultContent()
-        await fsPromises.writeFile(LOCAL_FILE_PATH, defaultContent, "utf-8")
-        console.log("Replaced invalid JSON with default content")
-        return defaultContent
       }
-    } catch (error) {
-      console.error("Error in getFileContent:", error)
+
+      // If local file doesn't exist or has invalid JSON, use the default file
+      if (fs.existsSync(DEFAULT_FILE_PATH)) {
+        try {
+          console.log("Using default AB test configuration file")
+          const content = await fsPromises.readFile(DEFAULT_FILE_PATH, "utf-8")
+
+          // Validate JSON
+          try {
+            JSON.parse(content)
+
+            // Copy to the local file path
+            await fsPromises.writeFile(LOCAL_FILE_PATH, content, "utf-8")
+            console.log("Copied default configuration to local file")
+
+            return content
+          } catch (jsonError) {
+            console.error("Invalid JSON in default file:", jsonError)
+            // If default file has invalid JSON, continue to GitHub fallback
+          }
+        } catch (readError) {
+          console.error("Error reading default file:", readError)
+          // Continue to GitHub fallback
+        }
+      }
 
       // Try GitHub as fallback only if configured
       if (this.octokit && this.owner && this.repo) {
@@ -177,47 +91,69 @@ export class GitHubService {
             // Validate the GitHub content
             try {
               JSON.parse(content)
-              await this.ensureDirectoryExists(path.dirname(LOCAL_FILE_PATH))
               await fsPromises.writeFile(LOCAL_FILE_PATH, content, "utf-8")
               console.log("Successfully fetched and saved content from GitHub")
               return content
             } catch (githubJsonError) {
               console.error("Invalid JSON from GitHub:", githubJsonError)
+              // If GitHub content has invalid JSON, continue to final fallback
             }
           }
         } catch (githubError) {
           console.error("Error fetching from GitHub:", githubError)
+          // Continue to final fallback
         }
       } else {
         console.log("GitHub not configured, using local file only")
       }
 
-      // Try to read the uploaded file as a last resort
-      const uploadedFilePath = path.join(process.cwd(), "data/experiments.json")
-      if (fs.existsSync(uploadedFilePath)) {
-        try {
-          const uploadedContent = await fsPromises.readFile(uploadedFilePath, "utf-8")
-          // Validate JSON
-          JSON.parse(uploadedContent)
-          // Copy to ab.json
-          await this.ensureDirectoryExists(path.dirname(LOCAL_FILE_PATH))
-          await fsPromises.writeFile(LOCAL_FILE_PATH, uploadedContent, "utf-8")
-          console.log("Used uploaded ab.json file as last resort")
-          return uploadedContent
-        } catch (lastResortError) {
-          console.error("Error using uploaded file as last resort:", lastResortError)
-        }
-      }
+      // Final fallback: create a minimal valid structure
+      console.log("Using minimal default structure as last resort")
+      const defaultContent = JSON.stringify(
+        {
+          default: {
+            landingID: 10000,
+            landingName: "Default Configuration",
+            enabled: true,
+            toggles: {
+              both: {},
+              ios: {},
+              android: {},
+            },
+            sdkToggles: {
+              both: {},
+              ios: {},
+              android: {},
+            },
+          },
+          experiments: [],
+          filters: [],
+        },
+        null,
+        2,
+      )
 
-      // Return default content as last resort
-      const defaultContent = this.getDefaultContent()
-      try {
-        await this.ensureDirectoryExists(path.dirname(LOCAL_FILE_PATH))
-        await fsPromises.writeFile(LOCAL_FILE_PATH, defaultContent, "utf-8")
-      } catch (writeError) {
-        console.error("Failed to write default content:", writeError)
-      }
+      await fsPromises.writeFile(LOCAL_FILE_PATH, defaultContent, "utf-8")
       return defaultContent
+    } catch (error) {
+      console.error("Error in getFileContent:", error)
+
+      // Absolute last resort - return a minimal valid structure
+      return JSON.stringify(
+        {
+          default: {
+            landingID: 10000,
+            landingName: "Default Configuration",
+            enabled: true,
+            toggles: { both: {}, ios: {}, android: {} },
+            sdkToggles: { both: {}, ios: {}, android: {} },
+          },
+          experiments: [],
+          filters: [],
+        },
+        null,
+        2,
+      )
     }
   }
 

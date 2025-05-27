@@ -23,29 +23,13 @@ export default function Dashboard() {
   const [isGitHubConfigured, setIsGitHubConfigured] = useState(false)
 
   useEffect(() => {
-    initializeAndFetchExperiments()
+    fetchExperiments()
   }, [])
-
-  const initializeAndFetchExperiments = async () => {
-    setLoading(true)
-    setError(null)
-    setMessage("")
-
-    try {
-      // First try to initialize from the uploaded file
-      await fetch("/api/init")
-      // Then fetch experiments
-      await fetchExperiments()
-    } catch (error) {
-      console.error("Failed to initialize:", error)
-      // Still try to fetch experiments even if initialization fails
-      await fetchExperiments()
-    }
-  }
 
   const fetchExperiments = async () => {
     setLoading(true)
     setError(null)
+    setMessage("")
 
     try {
       const response = await fetch("/api/experiments")
@@ -87,6 +71,29 @@ export default function Dashboard() {
     } catch (error) {
       console.error("Failed to fetch experiments:", error)
       setError(error instanceof Error ? error.message : "Unknown error occurred")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const resetToDefault = async () => {
+    setLoading(true)
+    setError(null)
+    setMessage("")
+
+    try {
+      const response = await fetch("/api/reset-to-default")
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
+      }
+
+      await fetchExperiments()
+      setMessage("Successfully reset to default configuration")
+    } catch (error) {
+      console.error("Failed to reset to default:", error)
+      setError(error instanceof Error ? error.message : "Failed to reset to default")
     } finally {
       setLoading(false)
     }
@@ -216,6 +223,9 @@ export default function Dashboard() {
           <Button onClick={fetchExperiments} disabled={loading} variant="outline" size="sm">
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
+          </Button>
+          <Button onClick={resetToDefault} disabled={loading} variant="outline" size="sm">
+            Reset to Default
           </Button>
           {isGitHubConfigured && (
             <Button onClick={syncWithGitHub} disabled={loading} variant="outline">
