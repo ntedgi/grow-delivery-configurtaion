@@ -23,13 +23,29 @@ export default function Dashboard() {
   const [isGitHubConfigured, setIsGitHubConfigured] = useState(false)
 
   useEffect(() => {
-    fetchExperiments()
+    initializeAndFetchExperiments()
   }, [])
+
+  const initializeAndFetchExperiments = async () => {
+    setLoading(true)
+    setError(null)
+    setMessage("")
+
+    try {
+      // First try to initialize from the uploaded file
+      await fetch("/api/init")
+      // Then fetch experiments
+      await fetchExperiments()
+    } catch (error) {
+      console.error("Failed to initialize:", error)
+      // Still try to fetch experiments even if initialization fails
+      await fetchExperiments()
+    }
+  }
 
   const fetchExperiments = async () => {
     setLoading(true)
     setError(null)
-    setMessage("")
 
     try {
       const response = await fetch("/api/experiments")

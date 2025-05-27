@@ -3,9 +3,9 @@ import fs from "fs"
 import path from "path"
 import { promises as fsPromises } from "fs"
 
-// Use the correct path for Next.js
-const LOCAL_FILE_PATH = path.join(process.cwd(), "data/experiments.json")
-const BACKUP_FILE_PATH = path.join(process.cwd(), "data/experiments.backup.json")
+// Use the correct path for Next.js - pointing directly to the ab.json file
+const LOCAL_FILE_PATH = path.join(process.cwd(), "data/ab.json")
+const BACKUP_FILE_PATH = path.join(process.cwd(), "data/ab.backup.json")
 
 export class GitHubService {
   private octokit: Octokit | null = null
@@ -27,16 +27,23 @@ export class GitHubService {
   private getDefaultContent(): string {
     return JSON.stringify(
       {
-        experiments: [],
-        defaultConfig: {
-          description: "Default description",
-          enabled: false,
-          traffic: 0,
-          variants: [
-            { name: "Control", traffic: 50 },
-            { name: "Treatment", traffic: 50 },
-          ],
+        default: {
+          landingID: 10000,
+          landingName: "Default Configuration",
+          enabled: true,
+          toggles: {
+            both: {},
+            ios: {},
+            android: {},
+          },
+          sdkToggles: {
+            both: {},
+            ios: {},
+            android: {},
+          },
         },
+        experiments: [],
+        filters: [],
       },
       null,
       2,
@@ -50,7 +57,25 @@ export class GitHubService {
 
       // Check if file exists
       if (!fs.existsSync(LOCAL_FILE_PATH)) {
-        console.log("Experiments file not found, creating default file")
+        console.log("AB test file not found, creating default file")
+
+        // Try to copy the uploaded ab.json file if it exists
+        const uploadedFilePath = path.join(process.cwd(), "data/experiments.json")
+        if (fs.existsSync(uploadedFilePath)) {
+          try {
+            const content = await fsPromises.readFile(uploadedFilePath, "utf-8")
+            // Validate JSON
+            JSON.parse(content)
+            // Copy to ab.json
+            await fsPromises.writeFile(LOCAL_FILE_PATH, content, "utf-8")
+            console.log("Copied uploaded ab.json file")
+            return content
+          } catch (copyError) {
+            console.error("Error copying uploaded file:", copyError)
+          }
+        }
+
+        // If no uploaded file or copy failed, create default content
         const defaultContent = this.getDefaultContent()
         await fsPromises.writeFile(LOCAL_FILE_PATH, defaultContent, "utf-8")
         return defaultContent
@@ -62,6 +87,23 @@ export class GitHubService {
         content = await fsPromises.readFile(LOCAL_FILE_PATH, "utf-8")
       } catch (readError) {
         console.error("Error reading file:", readError)
+
+        // Try to read the uploaded file as a fallback
+        const uploadedFilePath = path.join(process.cwd(), "data/experiments.json")
+        if (fs.existsSync(uploadedFilePath)) {
+          try {
+            content = await fsPromises.readFile(uploadedFilePath, "utf-8")
+            // Validate JSON
+            JSON.parse(content)
+            // Copy to ab.json
+            await fsPromises.writeFile(LOCAL_FILE_PATH, content, "utf-8")
+            console.log("Used uploaded ab.json file as fallback")
+            return content
+          } catch (fallbackError) {
+            console.error("Error using fallback file:", fallbackError)
+          }
+        }
+
         const defaultContent = this.getDefaultContent()
         await fsPromises.writeFile(LOCAL_FILE_PATH, defaultContent, "utf-8")
         return defaultContent
@@ -78,36 +120,6 @@ export class GitHubService {
       // Validate JSON
       try {
         const parsed = JSON.parse(content)
-
-        // Validate structure
-        if (!parsed || typeof parsed !== "object") {
-          throw new Error("Invalid JSON structure")
-        }
-
-        // Ensure required fields exist
-        if (!Array.isArray(parsed.experiments)) {
-          parsed.experiments = []
-        }
-
-        if (!parsed.defaultConfig) {
-          parsed.defaultConfig = {
-            description: "Default description",
-            enabled: false,
-            traffic: 0,
-            variants: [
-              { name: "Control", traffic: 50 },
-              { name: "Treatment", traffic: 50 },
-            ],
-          }
-        }
-
-        // Save the corrected structure if we made changes
-        const correctedContent = JSON.stringify(parsed, null, 2)
-        if (correctedContent !== content) {
-          await fsPromises.writeFile(LOCAL_FILE_PATH, correctedContent, "utf-8")
-          return correctedContent
-        }
-
         return content
       } catch (jsonError) {
         console.error("Invalid JSON in file:", jsonError)
@@ -116,11 +128,27 @@ export class GitHubService {
         // Backup the invalid file
         try {
           const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-          const backupPath = path.join(process.cwd(), "data", `experiments.invalid.${timestamp}.txt`)
+          const backupPath = path.join(process.cwd(), "data", `ab.invalid.${timestamp}.txt`)
           await fsPromises.writeFile(backupPath, content, "utf-8")
           console.log(`Backed up invalid file to: ${backupPath}`)
         } catch (backupError) {
           console.error("Failed to backup invalid file:", backupError)
+        }
+
+        // Try to read the uploaded file as a fallback
+        const uploadedFilePath = path.join(process.cwd(), "data/experiments.json")
+        if (fs.existsSync(uploadedFilePath)) {
+          try {
+            const uploadedContent = await fsPromises.readFile(uploadedFilePath, "utf-8")
+            // Validate JSON
+            JSON.parse(uploadedContent)
+            // Copy to ab.json
+            await fsPromises.writeFile(LOCAL_FILE_PATH, uploadedContent, "utf-8")
+            console.log("Used uploaded ab.json file as fallback after JSON error")
+            return uploadedContent
+          } catch (fallbackError) {
+            console.error("Error using fallback file after JSON error:", fallbackError)
+          }
         }
 
         // Replace with default content
@@ -132,7 +160,7 @@ export class GitHubService {
     } catch (error) {
       console.error("Error in getFileContent:", error)
 
-      // Try GitHub as fallback if configured
+      // Try GitHub as fallback only if configured
       if (this.octokit && this.owner && this.repo) {
         try {
           console.log("Attempting to fetch from GitHub...")
@@ -160,6 +188,25 @@ export class GitHubService {
         } catch (githubError) {
           console.error("Error fetching from GitHub:", githubError)
         }
+      } else {
+        console.log("GitHub not configured, using local file only")
+      }
+
+      // Try to read the uploaded file as a last resort
+      const uploadedFilePath = path.join(process.cwd(), "data/experiments.json")
+      if (fs.existsSync(uploadedFilePath)) {
+        try {
+          const uploadedContent = await fsPromises.readFile(uploadedFilePath, "utf-8")
+          // Validate JSON
+          JSON.parse(uploadedContent)
+          // Copy to ab.json
+          await this.ensureDirectoryExists(path.dirname(LOCAL_FILE_PATH))
+          await fsPromises.writeFile(LOCAL_FILE_PATH, uploadedContent, "utf-8")
+          console.log("Used uploaded ab.json file as last resort")
+          return uploadedContent
+        } catch (lastResortError) {
+          console.error("Error using uploaded file as last resort:", lastResortError)
+        }
       }
 
       // Return default content as last resort
@@ -181,10 +228,7 @@ export class GitHubService {
 
       // Validate JSON before saving
       try {
-        const parsed = JSON.parse(content)
-        if (!parsed || typeof parsed !== "object") {
-          throw new Error("Invalid JSON structure")
-        }
+        JSON.parse(content)
       } catch (jsonError) {
         console.error("Invalid JSON content:", jsonError)
         throw new Error("Cannot save invalid JSON content")
