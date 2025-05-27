@@ -5,6 +5,7 @@ import { ExperimentList } from "@/components/experiment-list"
 import { FilterList } from "@/components/filter-list"
 import { ExperimentForm } from "@/components/experiment-form"
 import { DiffViewer } from "@/components/diff-viewer"
+import { DeleteConfirmation } from "@/components/delete-confirmation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -25,6 +26,8 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("experiments")
   const [editingExperiment, setEditingExperiment] = useState<Experiment | null>(null)
   const [showEditDialog, setShowEditDialog] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [experimentToDelete, setExperimentToDelete] = useState<Experiment | null>(null)
 
   useEffect(() => {
     fetchExperiments()
@@ -36,10 +39,12 @@ export default function Dashboard() {
     setMessage("")
 
     try {
+      console.log("Fetching experiments...")
       const response = await fetch("/api/experiments")
 
       if (!response.ok) {
         const errorData = await response.json()
+        console.error("Error response from /api/experiments:", errorData)
 
         // Check if it's a JSON error that was fixed
         if (errorData.message?.includes("reset to defaults")) {
@@ -61,22 +66,46 @@ export default function Dashboard() {
       setError(null)
 
       // Check if GitHub sync button should be shown
-      try {
-        const syncResponse = await fetch("/api/github/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        })
-        const syncData = await syncResponse.json()
-        setIsGitHubConfigured(!syncData.message?.includes("not configured"))
-      } catch (syncError) {
-        console.error("Error checking GitHub config:", syncError)
-        setIsGitHubConfigured(false)
-      }
+      checkGitHubConfig()
     } catch (error) {
       console.error("Failed to fetch experiments:", error)
       setError(error instanceof Error ? error.message : "Unknown error occurred")
+
+      // Try to load default data if fetch fails
+      try {
+        console.log("Attempting to load default data...")
+        const response = await fetch("/api/reset-to-default")
+        if (response.ok) {
+          console.log("Default data loaded successfully")
+          setMessage("Loaded default configuration")
+          await fetchExperiments()
+        }
+      } catch (defaultError) {
+        console.error("Failed to load default data:", defaultError)
+      }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const checkGitHubConfig = async () => {
+    try {
+      console.log("Checking GitHub configuration...")
+      const syncResponse = await fetch("/api/github/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+
+      const syncData = await syncResponse.json()
+      console.log("GitHub sync check response:", syncData)
+
+      // Check if GitHub is configured based on the response
+      const configured = syncData.success === true || !syncData.message?.includes("not configured")
+      console.log("GitHub configured:", configured)
+      setIsGitHubConfigured(configured)
+    } catch (syncError) {
+      console.error("Error checking GitHub config:", syncError)
+      setIsGitHubConfigured(false)
     }
   }
 
@@ -86,6 +115,7 @@ export default function Dashboard() {
     setMessage("")
 
     try {
+      console.log("Resetting to default configuration...")
       const response = await fetch("/api/reset-to-default")
 
       if (!response.ok) {
@@ -105,18 +135,28 @@ export default function Dashboard() {
 
   const syncWithGitHub = async () => {
     if (!isGitHubConfigured) {
-      setMessage("GitHub integration not configured. Using local file only.")
+      setMessage("GitHub integration not configured. Using local storage only.")
       return
     }
 
     setLoading(true)
     setError(null)
     try {
-      await fetch("/api/github/sync", { method: "POST" })
+      console.log("Syncing with GitHub...")
+      const response = await fetch("/api/github/sync", { method: "POST" })
+      const data = await response.json()
+
+      console.log("GitHub sync response:", data)
+
+      if (!data.success) {
+        throw new Error(data.details || data.error || "Failed to sync with GitHub")
+      }
+
       await fetchExperiments()
       setMessage("Successfully synced with GitHub")
     } catch (error) {
-      setMessage("Failed to sync with GitHub")
+      console.error("Failed to sync with GitHub:", error)
+      setMessage(error instanceof Error ? error.message : "Failed to sync with GitHub")
     } finally {
       setLoading(false)
     }
@@ -127,6 +167,7 @@ export default function Dashboard() {
     setError(null)
 
     try {
+      console.log("Creating experiment:", experiment)
       const response = await fetch("/api/experiments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -153,6 +194,7 @@ export default function Dashboard() {
   }
 
   const handleEditExperiment = (experiment: Experiment) => {
+    console.log("Editing experiment:", experiment)
     setEditingExperiment(experiment)
     setShowEditDialog(true)
   }
@@ -164,6 +206,7 @@ export default function Dashboard() {
     setError(null)
 
     try {
+      console.log("Updating experiment:", updatedExperiment)
       const response = await fetch("/api/experiments/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -190,6 +233,51 @@ export default function Dashboard() {
     }
   }
 
+  const handleDeleteExperiment = (experiment: Experiment) => {
+    console.log("Preparing to delete experiment:", experiment)
+    setExperimentToDelete(experiment)
+    setShowDeleteDialog(true)
+  }
+
+  const confirmDeleteExperiment = async () => {
+    if (!experimentToDelete) return
+
+    setLoading(true)
+    setError(null)
+    setShowDeleteDialog(false)
+
+    try {
+      console.log("Deleting experiment:", experimentToDelete)
+      const response = await fetch("/api/experiments/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ experimentId: experimentToDelete.landingID }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json()
+      setConfig(result.config)
+      setDiff(result.diff)
+      setMessage(`Experiment "${experimentToDelete.landingName}" deleted successfully`)
+      setError(null)
+      setExperimentToDelete(null)
+    } catch (error) {
+      console.error("Failed to delete experiment:", error)
+      setError(error instanceof Error ? error.message : "Failed to delete experiment")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const cancelDeleteExperiment = () => {
+    setExperimentToDelete(null)
+    setShowDeleteDialog(false)
+  }
+
   const createPullRequest = async () => {
     if (!config) return
 
@@ -197,6 +285,7 @@ export default function Dashboard() {
     setError(null)
 
     try {
+      console.log("Creating pull request...")
       const response = await fetch("/api/github/pr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -234,6 +323,7 @@ export default function Dashboard() {
     setError(null)
 
     try {
+      console.log("Saving changes locally...")
       const response = await fetch("/api/github/pr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -346,7 +436,11 @@ export default function Dashboard() {
           </TabsList>
 
           <TabsContent value="experiments">
-            <ExperimentList experiments={config.experiments} onEdit={handleEditExperiment} />
+            <ExperimentList
+              experiments={config.experiments}
+              onEdit={handleEditExperiment}
+              onDelete={handleDeleteExperiment}
+            />
           </TabsContent>
 
           <TabsContent value="filters">
@@ -398,6 +492,9 @@ export default function Dashboard() {
       ) : (
         <div className="text-center p-8">
           <p className="text-muted-foreground">No configuration loaded</p>
+          <Button onClick={resetToDefault} className="mt-4">
+            Load Default Configuration
+          </Button>
         </div>
       )}
 
@@ -417,6 +514,19 @@ export default function Dashboard() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmation
+        isOpen={showDeleteDialog}
+        onClose={cancelDeleteExperiment}
+        onConfirm={confirmDeleteExperiment}
+        title="Delete Experiment"
+        description={
+          experimentToDelete
+            ? `Are you sure you want to delete the experiment "${experimentToDelete.landingName}"? This action cannot be undone.`
+            : "Are you sure you want to delete this experiment? This action cannot be undone."
+        }
+      />
     </div>
   )
 }

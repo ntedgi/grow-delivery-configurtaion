@@ -125,6 +125,41 @@ export class ExperimentService {
     }
   }
 
+  async deleteExperiment(experimentId: number): Promise<{
+    config: ExperimentsConfig
+    diff: string
+  }> {
+    try {
+      const currentConfig = await this.getExperiments()
+      const oldContent = JSON.stringify(currentConfig, null, 2)
+
+      // Find the experiment to delete
+      const experimentIndex = currentConfig.experiments.findIndex((exp) => exp.landingID === experimentId)
+
+      if (experimentIndex === -1) {
+        throw new Error(`Experiment with ID ${experimentId} not found`)
+      }
+
+      // Remove the experiment
+      currentConfig.experiments.splice(experimentIndex, 1)
+
+      const newContent = JSON.stringify(currentConfig, null, 2)
+
+      // Save the changes
+      await this.saveExperiments(currentConfig)
+
+      const diffResult = diff.createPatch("experiments.json", oldContent, newContent, "Before", "After")
+
+      return {
+        config: currentConfig,
+        diff: diffResult,
+      }
+    } catch (error) {
+      console.error("Error in deleteExperiment:", error)
+      throw error
+    }
+  }
+
   async saveExperiments(config: ExperimentsConfig): Promise<void> {
     try {
       const githubService = await this.githubServicePromise
