@@ -6,11 +6,12 @@ export async function POST() {
     const experimentService = new ExperimentService()
 
     // Check if GitHub is configured
-    if (!experimentService.isGitHubConfigured()) {
+    const isConfigured = await experimentService.isGitHubConfigured()
+    if (!isConfigured) {
       return NextResponse.json(
         {
           success: false,
-          message: "GitHub integration not configured. Using local file only.",
+          message: "GitHub integration not configured. Using local storage only.",
         },
         { status: 400 },
       )

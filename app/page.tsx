@@ -10,7 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { RefreshCw, GitPullRequest, CheckCircle, Save, AlertTriangle } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { RefreshCw, GitPullRequest, CheckCircle, Save, AlertTriangle, X } from "lucide-react"
 import type { ExperimentsConfig, Experiment } from "@/types/experiment"
 
 export default function Dashboard() {
@@ -21,6 +22,9 @@ export default function Dashboard() {
   const [message, setMessage] = useState("")
   const [prUrl, setPrUrl] = useState("")
   const [isGitHubConfigured, setIsGitHubConfigured] = useState(false)
+  const [activeTab, setActiveTab] = useState("experiments")
+  const [editingExperiment, setEditingExperiment] = useState<Experiment | null>(null)
+  const [showEditDialog, setShowEditDialog] = useState(false)
 
   useEffect(() => {
     fetchExperiments()
@@ -139,9 +143,48 @@ export default function Dashboard() {
       setDiff(result.diff)
       setMessage("Experiment created successfully")
       setError(null)
+      setActiveTab("experiments")
     } catch (error) {
       console.error("Failed to create experiment:", error)
       setError(error instanceof Error ? error.message : "Failed to create experiment")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleEditExperiment = (experiment: Experiment) => {
+    setEditingExperiment(experiment)
+    setShowEditDialog(true)
+  }
+
+  const handleUpdateExperiment = async (updatedExperiment: Partial<Experiment>) => {
+    if (!editingExperiment) return
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch("/api/experiments/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedExperiment),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json()
+      setConfig(result.config)
+      setDiff(result.diff)
+      setMessage("Experiment updated successfully")
+      setError(null)
+      setShowEditDialog(false)
+      setEditingExperiment(null)
+    } catch (error) {
+      console.error("Failed to update experiment:", error)
+      setError(error instanceof Error ? error.message : "Failed to update experiment")
     } finally {
       setLoading(false)
     }
@@ -293,7 +336,7 @@ export default function Dashboard() {
           </div>
         </div>
       ) : config ? (
-        <Tabs defaultValue="experiments" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList>
             <TabsTrigger value="experiments">Experiments ({config.experiments?.length || 0})</TabsTrigger>
             <TabsTrigger value="filters">Filters ({config.filters?.length || 0})</TabsTrigger>
@@ -303,7 +346,7 @@ export default function Dashboard() {
           </TabsList>
 
           <TabsContent value="experiments">
-            <ExperimentList experiments={config.experiments} />
+            <ExperimentList experiments={config.experiments} onEdit={handleEditExperiment} />
           </TabsContent>
 
           <TabsContent value="filters">
@@ -357,6 +400,23 @@ export default function Dashboard() {
           <p className="text-muted-foreground">No configuration loaded</p>
         </div>
       )}
+
+      {/* Edit Experiment Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between">
+              <DialogTitle>Edit Experiment</DialogTitle>
+              <Button variant="ghost" size="sm" onClick={() => setShowEditDialog(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </DialogHeader>
+          {editingExperiment && (
+            <ExperimentForm onSubmit={handleUpdateExperiment} initialData={editingExperiment} isEditing={true} />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

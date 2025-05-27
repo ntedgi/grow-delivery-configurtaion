@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,9 +13,11 @@ import type { Experiment } from "@/types/experiment"
 
 interface ExperimentFormProps {
   onSubmit: (experiment: Partial<Experiment>) => void
+  initialData?: Experiment
+  isEditing?: boolean
 }
 
-export function ExperimentForm({ onSubmit }: ExperimentFormProps) {
+export function ExperimentForm({ onSubmit, initialData, isEditing = false }: ExperimentFormProps) {
   const [experiment, setExperiment] = useState<Partial<Experiment>>({
     landingID: 0,
     landingName: "",
@@ -30,6 +32,19 @@ export function ExperimentForm({ onSubmit }: ExperimentFormProps) {
   const [toggleValue, setToggleValue] = useState("")
   const [sdkToggleKey, setSdkToggleKey] = useState("")
   const [sdkToggleValue, setSdkToggleValue] = useState("")
+
+  // Initialize form with initial data if provided
+  useEffect(() => {
+    if (initialData) {
+      setExperiment({
+        ...initialData,
+        // Ensure arrays and objects are cloned to avoid reference issues
+        userClusters: [...(initialData.userClusters || [])],
+        toggles: { ...(initialData.toggles || {}) },
+        sdkToggles: { ...(initialData.sdkToggles || {}) },
+      })
+    }
+  }, [initialData])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -82,6 +97,15 @@ export function ExperimentForm({ onSubmit }: ExperimentFormProps) {
     }
   }
 
+  const removeToggle = (key: string) => {
+    const newToggles = { ...experiment.toggles }
+    delete newToggles[key]
+    setExperiment({
+      ...experiment,
+      toggles: newToggles,
+    })
+  }
+
   const addSdkToggle = () => {
     if (sdkToggleKey && sdkToggleValue) {
       try {
@@ -110,10 +134,19 @@ export function ExperimentForm({ onSubmit }: ExperimentFormProps) {
     }
   }
 
+  const removeSdkToggle = (key: string) => {
+    const newSdkToggles = { ...experiment.sdkToggles }
+    delete newSdkToggles[key]
+    setExperiment({
+      ...experiment,
+      sdkToggles: newSdkToggles,
+    })
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Create New Experiment</CardTitle>
+        <CardTitle>{isEditing ? "Edit Experiment" : "Create New Experiment"}</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -125,6 +158,7 @@ export function ExperimentForm({ onSubmit }: ExperimentFormProps) {
               value={experiment.landingID}
               onChange={(e) => setExperiment({ ...experiment, landingID: Number.parseInt(e.target.value) || 0 })}
               required
+              disabled={isEditing} // Disable editing of landing ID for existing experiments
             />
           </div>
 
@@ -191,8 +225,26 @@ export function ExperimentForm({ onSubmit }: ExperimentFormProps) {
                 </Button>
               </div>
               {Object.keys(experiment.toggles || {}).length > 0 && (
-                <div className="text-xs font-mono bg-muted p-2 rounded">
-                  <pre>{JSON.stringify(experiment.toggles, null, 2)}</pre>
+                <div>
+                  <div className="text-xs font-mono bg-muted p-2 rounded">
+                    <pre>{JSON.stringify(experiment.toggles, null, 2)}</pre>
+                  </div>
+                  <div className="mt-2">
+                    <Label>Remove Toggles</Label>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {Object.keys(experiment.toggles || {}).map((key) => (
+                        <Badge
+                          key={key}
+                          variant="secondary"
+                          className="cursor-pointer"
+                          onClick={() => removeToggle(key)}
+                        >
+                          {key}
+                          <Trash2 className="h-3 w-3 ml-1" />
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -213,15 +265,33 @@ export function ExperimentForm({ onSubmit }: ExperimentFormProps) {
                 </Button>
               </div>
               {Object.keys(experiment.sdkToggles || {}).length > 0 && (
-                <div className="text-xs font-mono bg-muted p-2 rounded">
-                  <pre>{JSON.stringify(experiment.sdkToggles, null, 2)}</pre>
+                <div>
+                  <div className="text-xs font-mono bg-muted p-2 rounded">
+                    <pre>{JSON.stringify(experiment.sdkToggles, null, 2)}</pre>
+                  </div>
+                  <div className="mt-2">
+                    <Label>Remove SDK Toggles</Label>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {Object.keys(experiment.sdkToggles || {}).map((key) => (
+                        <Badge
+                          key={key}
+                          variant="secondary"
+                          className="cursor-pointer"
+                          onClick={() => removeSdkToggle(key)}
+                        >
+                          {key}
+                          <Trash2 className="h-3 w-3 ml-1" />
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
           </div>
 
           <Button type="submit" className="w-full">
-            Create Experiment
+            {isEditing ? "Update Experiment" : "Create Experiment"}
           </Button>
         </form>
       </CardContent>

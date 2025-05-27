@@ -7,7 +7,8 @@ export async function POST(request: Request) {
     const experimentService = new ExperimentService()
 
     // Check if GitHub is configured
-    if (!experimentService.isGitHubConfigured()) {
+    const isConfigured = await experimentService.isGitHubConfigured()
+    if (!isConfigured) {
       await experimentService.saveExperiments(config)
       return NextResponse.json({
         prUrl: null,

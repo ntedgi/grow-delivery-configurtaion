@@ -3,13 +3,15 @@
 import type { Experiment } from "@/types/experiment"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Users } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Users, Edit } from "lucide-react"
 
 interface ExperimentListProps {
   experiments: Experiment[] | undefined
+  onEdit: (experiment: Experiment) => void
 }
 
-export function ExperimentList({ experiments }: ExperimentListProps) {
+export function ExperimentList({ experiments, onEdit }: ExperimentListProps) {
   if (!experiments || experiments.length === 0) {
     return (
       <div className="text-center p-8 border rounded-lg">
@@ -28,9 +30,15 @@ export function ExperimentList({ experiments }: ExperimentListProps) {
                 <CardTitle className="text-lg">{experiment.landingName}</CardTitle>
                 <CardDescription className="mt-1">Landing ID: {experiment.landingID}</CardDescription>
               </div>
-              <Badge variant={experiment.enabled ? "default" : "secondary"}>
-                {experiment.enabled ? "Active" : "Inactive"}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant={experiment.enabled ? "default" : "secondary"}>
+                  {experiment.enabled ? "Active" : "Inactive"}
+                </Badge>
+                <Button variant="outline" size="sm" onClick={() => onEdit(experiment)}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent>

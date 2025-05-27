@@ -1,17 +1,29 @@
 import type { Experiment, ExperimentsConfig } from "@/types/experiment"
-import { GitHubService } from "./github"
 import * as diff from "diff"
 
+// Dynamically import the appropriate GitHub service based on environment
+const getGitHubService = async () => {
+  // Check if we're in a production environment without file system access
+  if (process.env.NODE_ENV === "production" && !process.env.GITHUB_TOKEN) {
+    const { GitHubService } = await import("./github-simple")
+    return new GitHubService()
+  } else {
+    const { GitHubService } = await import("./github")
+    return new GitHubService()
+  }
+}
+
 export class ExperimentService {
-  private githubService: GitHubService
+  private githubServicePromise: Promise<any>
 
   constructor() {
-    this.githubService = new GitHubService()
+    this.githubServicePromise = getGitHubService()
   }
 
   async getExperiments(): Promise<ExperimentsConfig> {
     try {
-      const content = await this.githubService.getFileContent()
+      const githubService = await this.githubServicePromise
+      const content = await githubService.getFileContent()
       const config = JSON.parse(content)
 
       // Ensure the config has the expected structure
@@ -61,7 +73,7 @@ export class ExperimentService {
       currentConfig.experiments.push(newExperiment)
       const newContent = JSON.stringify(currentConfig, null, 2)
 
-      // Save the changes locally
+      // Save the changes
       await this.saveExperiments(currentConfig)
 
       const diffResult = diff.createPatch("experiments.json", oldContent, newContent, "Before", "After")
@@ -76,10 +88,48 @@ export class ExperimentService {
     }
   }
 
+  async updateExperiment(updatedExperiment: Experiment): Promise<{
+    config: ExperimentsConfig
+    diff: string
+  }> {
+    try {
+      const currentConfig = await this.getExperiments()
+      const oldContent = JSON.stringify(currentConfig, null, 2)
+
+      // Find the experiment to update
+      const experimentIndex = currentConfig.experiments.findIndex(
+        (exp) => exp.landingID === updatedExperiment.landingID,
+      )
+
+      if (experimentIndex === -1) {
+        throw new Error(`Experiment with ID ${updatedExperiment.landingID} not found`)
+      }
+
+      // Update the experiment
+      currentConfig.experiments[experimentIndex] = updatedExperiment
+
+      const newContent = JSON.stringify(currentConfig, null, 2)
+
+      // Save the changes
+      await this.saveExperiments(currentConfig)
+
+      const diffResult = diff.createPatch("experiments.json", oldContent, newContent, "Before", "After")
+
+      return {
+        config: currentConfig,
+        diff: diffResult,
+      }
+    } catch (error) {
+      console.error("Error in updateExperiment:", error)
+      throw error
+    }
+  }
+
   async saveExperiments(config: ExperimentsConfig): Promise<void> {
     try {
+      const githubService = await this.githubServicePromise
       const content = JSON.stringify(config, null, 2)
-      await this.githubService.saveFileContent(content)
+      await githubService.saveFileContent(content)
     } catch (error) {
       console.error("Error in saveExperiments:", error)
       throw error
@@ -88,15 +138,17 @@ export class ExperimentService {
 
   async createPullRequest(config: ExperimentsConfig, message: string): Promise<string> {
     try {
+      const githubService = await this.githubServicePromise
       const content = JSON.stringify(config, null, 2)
-      return this.githubService.createPullRequest(content, message)
+      return githubService.createPullRequest(content, message)
     } catch (error) {
       console.error("Error in createPullRequest:", error)
       throw error
     }
   }
 
-  isGitHubConfigured(): boolean {
-    return this.githubService.isGitHubConfigured()
+  async isGitHubConfigured(): Promise<boolean> {
+    const githubService = await this.githubServicePromise
+    return githubService.isGitHubConfigured()
   }
 }
